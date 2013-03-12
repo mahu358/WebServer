@@ -15,8 +15,11 @@ import java.net.URI;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Vector;
 import javax.swing.JLabel;
 import javax.swing.JTextArea;
+import org.apache.commons.net.util.SubnetUtils;
+
 
 
 
@@ -32,24 +35,26 @@ public class WebServer{
     private String contentPath;
     private InetSocketAddress socket;
     private BasicAuthenticator basicAuthenticator;
-    private HttpContext context;
     public  String login,password;
     private Boolean passwordAuthentication;
-    private JTextArea jTextArea1;
+    private JTextArea logTextArea;
     private Calendar cal;
     private DateFormat dateFormat;
     private int port;
+    private Vector<String> ipAddressesList;
+    private Boolean ipVerification;
+    private Boolean isWhiteList;
     
-    public WebServer(int port,String login,String password,Boolean passwordAuthentication,JTextArea jTextArea1) throws Exception {
+    public WebServer(int port,String login,String password,Boolean passwordAuthentication,JTextArea logTextArea) throws Exception {
         this.port=port;
         socket = new InetSocketAddress(this.port);
         server = HttpServer.create(socket, 0);
         this.login=login;
         this.password=password;
         this.passwordAuthentication=passwordAuthentication;
-        context = server.createContext("/", new MyHandler(this.login,this.password,this.passwordAuthentication));
+        server.createContext("/", new MyHandler(this.login,this.password,this.passwordAuthentication));
         server.setExecutor(null);
-        this.jTextArea1=jTextArea1;
+        this.logTextArea=logTextArea;
         cal = Calendar.getInstance();
         dateFormat = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
 
@@ -62,16 +67,25 @@ public class WebServer{
                 return instance;
         }
         
-     public void startServer(JLabel jlabel16, JLabel jlabel17,JLabel jlabel18){
-     jlabel16.setText(contentPath);
-     jlabel17.setText(Integer.toString(this.port));    
-     jlabel18.setText( (passwordAuthentication) ? "Enabled" : "Disabled");
+     public void startServer(JLabel currentServerContentLabel,JLabel currentServerPortLabel,JLabel currentBasicAuthStatusLabel,JLabel currentIPVerificationStatusLabel){
+     currentServerContentLabel.setText(contentPath);
+     currentServerPortLabel.setText(Integer.toString(this.port));    
+     currentBasicAuthStatusLabel.setText( (passwordAuthentication) ? "Enabled" : "Disabled");
+     if (ipVerification)
+        {
+            currentIPVerificationStatusLabel.setText( (isWhiteList) ? "White List Enabled" : "Black List Enabled");
+        }
+     else
+        {
+            currentIPVerificationStatusLabel.setText("Disabled");
+        }
      this.server.start();
-     jTextArea1.append(dateFormat.format(cal.getTime()) +" Server started on Port "+this.server.getAddress().getPort()+"\n");
+     this.logTextArea.append(dateFormat.format(cal.getTime()) +" Server started on Port "+this.server.getAddress().getPort()+"\n");
+
      }
      
      public void stopServer(){
-     jTextArea1.append(dateFormat.format(cal.getTime()) +" Server stopped \n");
+     logTextArea.append(dateFormat.format(cal.getTime()) +" Server stopped \n");
      this.server.stop(1);
      instance =null;
      }
@@ -87,14 +101,40 @@ public class WebServer{
          contentPath = path;
 
 }
-    public void setAuhtData(String login,String password,Boolean passwordAuthentication){
+    public void setAuhtData(String login,String password,Boolean passwordAuthentication,Boolean ipVerification,Vector<String> ipList,Boolean isWhiteList){
         this.passwordAuthentication=passwordAuthentication;
+        this.ipVerification=ipVerification;
         this.password=password;
         this.login=login;
-        
+        this.ipAddressesList=ipList;
+        this.isWhiteList=isWhiteList;
 }
 
      
+    public void showSecuritySettingsInLog() {
+        if(passwordAuthentication){
+        logTextArea.append("\nBasic Login/Password Authentication-Enabled\n"+"Login:" + this.login +"\n"+"Password:" + this.password+"\n");
+        }
+        else{
+        logTextArea.append("\nBasic Login/Password Authentication-Disabled\n");
+        }
+        
+        if(ipVerification){
+        String str=(isWhiteList) ? "White List\n" : "Black List Enabled\n";
+        logTextArea.append("\nIP Authentication-Enabled\n"+"Method-" + str +"IP Addresses in list:");
+        for(String ip: ipAddressesList){
+            logTextArea.append(ip+"\n                     ");
+        }
+        logTextArea.append("\n");
+        }
+        else
+        {
+        logTextArea.append("\nIP Authentication-Disabled\n");
+        }
+
+    }
+
+
 private class MyHandler implements HttpHandler {
 
     public String postedlogin=null,postedpassword = null;
@@ -114,13 +154,17 @@ private class MyHandler implements HttpHandler {
   public void handle(HttpExchange t) throws IOException {
       
       
-      if(passwordAuthentication==true){
-            basicAuthenticator = new BasicAuthenticator("cPanel") {
+      if(   passwordAuthentication ){
+          
+          if(ipVerification&&isValidIp(t.getRemoteAddress().getAddress().toString().substring(1))){
+          
+            basicAuthenticator = new BasicAuthenticator("Web Server Authentication") {
             
  
             @Override
             public boolean checkCredentials(String login, String password) {        
                 if(login.equals(reqlogin)&&password.equals(reqpassword)){
+                    
                 return true;
                 }
                 else{
@@ -132,7 +176,7 @@ private class MyHandler implements HttpHandler {
     };
 
     if(basicAuthenticator.authenticate(t) instanceof BasicAuthenticator.Failure ){
-        jTextArea1.append(dateFormat.format(cal.getTime()) +" " + t.getRequestMethod().toString()+" "+t.getRemoteAddress().getHostString()+" "+t.getRemoteAddress().getPort()+" Auhtentication Failure\n");
+        logTextArea.append(dateFormat.format(cal.getTime()) +" " + t.getRequestMethod().toString()+" "+t.getRemoteAddress().getHostString()+" "+t.getRemoteAddress().getPort()+" Auhtentication Failure\n");
 
          String response = "<html><head><title>Bad Login/Password Auhentication Required !</title></head><body><h1>Bad Login/Password</h1><p>You supplied the wrongcredentials (e.g., bad password), or yourbrowser doesn't understand how to supplythe credentials required.</p></body></html>";
          t.sendResponseHeaders(401, response.length());
@@ -143,7 +187,7 @@ private class MyHandler implements HttpHandler {
         }
     
     if(basicAuthenticator.authenticate(t) instanceof BasicAuthenticator.Retry ){
-        jTextArea1.append(dateFormat.format(cal.getTime()) +" " + t.getRequestMethod().toString()+" "+t.getRemoteAddress().getHostString()+" "+t.getRemoteAddress().getPort()+" Requesting Auhtentication\n");
+        logTextArea.append(dateFormat.format(cal.getTime()) +" " + t.getRequestMethod().toString()+" "+t.getRemoteAddress().getHostString()+" "+t.getRemoteAddress().getPort()+" Requesting Basic Auhtentication\n");
                  String response = "<html><head><title>Auhentication Required !</title></head><body><h1>Auhentication Required !</h1></body></html>";
          t.sendResponseHeaders(401, response.length());
          try (OutputStream os = t.getResponseBody()) {
@@ -156,14 +200,35 @@ private class MyHandler implements HttpHandler {
     if(basicAuthenticator.authenticate(t) instanceof BasicAuthenticator.Success){
         getResponseData(t);
     }
+    
+    
+    
+    
+    
+    
     }
+      else
+          {
+          getResponseDataForDeniedIP(t);
+          }
+      }
       
       
       else
       
-      {
-      getResponseData(t);
+      { //System.out.println("          "+t.getRemoteAddress().getAddress().toString().substring(1));
+          if(  (ipVerification&&isValidIp(t.getRemoteAddress().getAddress().toString().substring(1))) || !ipVerification   )
+          {
+              getResponseData(t);
+          }
+          else
+          {
+          getResponseDataForDeniedIP(t);
+        }
+
       }
+   
+    }
     
     
 
@@ -171,6 +236,17 @@ private class MyHandler implements HttpHandler {
     
 
     }
+
+   public void getResponseDataForDeniedIP(HttpExchange t) throws IOException{
+   
+             logTextArea.append(dateFormat.format(cal.getTime()) +" " + t.getRequestMethod().toString()+" "+t.getRemoteAddress().getHostString()+" "+t.getRemoteAddress().getPort()+" IP Denied\n");
+          String response = "<html><head><title>Auhentication Failed, Access from your IP is denied  !</title></head><body><h1>Auhentication Failed, Access from your IP is denied  ! !</h1></body></html>";
+            t.sendResponseHeaders(200, response.length());
+            try (OutputStream os = t.getResponseBody()) {
+                    os.write(response.getBytes());
+                }
+
+   }
 
 
    public void getResponseData(HttpExchange t) throws IOException{
@@ -187,7 +263,7 @@ private class MyHandler implements HttpHandler {
         file = new File(contentPath + uri.getPath()).getCanonicalFile();
     }
     String authstring = (passwordAuthentication) ? " Auth-OK " : " ";
-    jTextArea1.append(dateFormat.format(cal.getTime())+" " + t.getRequestMethod().toString()+authstring+t.getRemoteAddress().getHostString()+" "+t.getRemoteAddress().getPort()+" "+uri.toString()+"\n");
+    logTextArea.append(dateFormat.format(cal.getTime())+" " + t.getRequestMethod().toString()+authstring+t.getRemoteAddress().getHostString()+" "+t.getRemoteAddress().getPort()+" "+uri.toString()+"\n");
     
     if (!file.getPath().startsWith(contentPath)) {
      
@@ -226,36 +302,48 @@ private class MyHandler implements HttpHandler {
 
 
 
+    private Boolean isIPinList(String ipAddress){
 
+     
+        for(String ip: ipAddressesList){
+            
+            if(ip.contains("/")){
 
+                SubnetUtils utils = new SubnetUtils(ip);
+                if(utils.getInfo().isInRange(ipAddress))
+                    return true;
+            }
+            else{
+                if(ip.trim().equals(ipAddress.trim()))
+                    return true;
+            }
+            
+       }
 
+        return false;
+        
+    }
+    
 
+    private Boolean isValidIp(String ipAddress){
+    
+        if(isWhiteList){
+            if(isIPinList(ipAddress))
+                return true;
+        }
+        else{
+            if(!isIPinList(ipAddress))
+                return true;
+        
+        }
+    return false;
+    }
 
   
     }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-  }
 
 
 
