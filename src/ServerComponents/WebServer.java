@@ -57,6 +57,7 @@ public class WebServer{
         this.logTextArea=logTextArea;
         cal = Calendar.getInstance();
         dateFormat = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+        this.ipAddressesList = new Vector<>();
 
     }
 
@@ -106,7 +107,12 @@ public class WebServer{
         this.ipVerification=ipVerification;
         this.password=password;
         this.login=login;
-        this.ipAddressesList=ipList;
+        this.ipAddressesList.clear();
+        if(ipVerification)
+            for(String copylist: ipList){
+                this.ipAddressesList.add(copylist);
+            }
+        
         this.isWhiteList=isWhiteList;
 }
 
@@ -156,7 +162,7 @@ private class MyHandler implements HttpHandler {
       
       if(   passwordAuthentication ){
           
-          if(ipVerification&&isValidIp(t.getRemoteAddress().getAddress().toString().substring(1))){
+          if(   !ipVerification || (ipVerification&&isValidIp(t.getRemoteAddress().getAddress().toString().substring(1)))     ){
           
             basicAuthenticator = new BasicAuthenticator("Web Server Authentication") {
             
@@ -240,8 +246,16 @@ private class MyHandler implements HttpHandler {
    public void getResponseDataForDeniedIP(HttpExchange t) throws IOException{
    
              logTextArea.append(dateFormat.format(cal.getTime()) +" " + t.getRequestMethod().toString()+" "+t.getRemoteAddress().getHostString()+" "+t.getRemoteAddress().getPort()+" IP Denied\n");
-          String response = "<html><head><title>Auhentication Failed, Access from your IP is denied  !</title></head><body><h1>Auhentication Failed, Access from your IP is denied  ! !</h1></body></html>";
-            t.sendResponseHeaders(200, response.length());
+         String response;
+          if(ipVerification)
+          {
+              response = "<html><head><title>Auhentication Failed, Access from your IP is denied  !</title></head><body><h1>Auhentication Failed, Access from your IP is denied  ! !</h1></body></html>";
+          }
+          else
+          {
+              response = "<html><head><title>Bad Login/Password Auhentication Required !</title></head><body><h1>Bad Login/Password</h1><p>You supplied the wrongcredentials (e.g., bad password), or yourbrowser doesn't understand how to supplythe credentials required.</p></body></html>";
+          }
+          t.sendResponseHeaders(200, response.length());
             try (OutputStream os = t.getResponseBody()) {
                     os.write(response.getBytes());
                 }
